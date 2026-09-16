@@ -1,2 +1,4 @@
 [core]
-    remote = origin
+    remote = local
+['remote "local"']
+    url = C:\Users\abedr\DVC_Remotes\mlops-lab-1

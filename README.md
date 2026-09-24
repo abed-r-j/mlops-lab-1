@@ -149,3 +149,95 @@ the newer data version is restored.
 | **6**    | GitHub contains the code and DVC pointer; the actual data is stored in the DVC remote.                                                                   |
 | **7**    | Run `dvc pull` to retrieve the data after cloning.                                                                                                       |
 | **8**    | After checking out the older commit and running `dvc checkout`, the newer processed folders should disappear if they did not exist in the older version. |  
+
+---
+
+# mlops-lab-2
+
+## Question 1
+
+After running:
+
+```bash
+uv add mlflow torch torchvision scikit-learn
+```
+
+`pyproject.toml` is updated to include the newly added dependencies and their version requirements.
+
+`uv.lock` is also updated with the exact resolved dependency versions and dependency information used by the project. This makes the environment reproducible across installations.
+
+Therefore, `pyproject.toml` describes the project's declared dependencies, while `uv.lock` records the resolved versions of those dependencies.
+
+## Question 2
+
+`--backend-store-uri` specifies where MLflow stores its tracking metadata, such as experiments, runs, parameters, metrics, and run information.
+
+In this lab:
+
+```bash
+--backend-store-uri sqlite:///mlflow.db
+```
+
+means that this metadata is stored in the local SQLite database `mlflow.db`.
+
+`--default-artifact-root` specifies where MLflow stores artifacts produced by runs, such as trained models and other files.
+
+In this lab:
+
+```bash
+--default-artifact-root ./mlruns
+```
+
+means that the artifacts are stored under the local `mlruns/` directory.
+
+The metadata and artifacts are different: metadata describes the experiment/run and includes parameters and metrics, while artifacts are files generated or saved by the run, such as the trained model.
+
+## Question 3
+
+`mlflow.db` and `mlruns/` should not be tracked by Git because they are generated local MLflow outputs rather than source code.
+
+They should not be tracked by DVC either because they are experiment-tracking outputs, not the Food-11 dataset or another versioned data asset. MLflow itself is responsible for storing and managing them.
+
+The lab therefore adds them to `.gitignore`.
+
+## Question 4
+
+When `mlflow.set_experiment("food11")` is called and an experiment named `food11` does not already exist, MLflow creates that experiment.
+
+After starting the tracking server and calling the function, the new `food11` experiment appears in the MLflow UI alongside the default experiment.
+
+## Question 5
+
+`mlflow.log_param` records a parameter that is set for a run and normally remains fixed for that run, such as learning rate, batch size, number of epochs, or model architecture.
+
+`mlflow.log_metric` records a measured value produced during or after training, such as loss or accuracy.
+
+`log_metric` takes a `step` because the same metric can be recorded multiple times during a run. In this lab, metrics are recorded once per epoch, so `step=epoch` identifies the epoch associated with each value.
+
+A parameter is logged as the configuration of the run, while a metric represents an evolving measurement.
+
+## Question 6
+
+In the MLflow UI, the run page shows the parameters, metric values/charts, and the logged model artifact.
+
+The model artifact is stored on disk under the artifact root configured for the MLflow server:
+
+```text
+./mlruns/
+```
+
+The exact subdirectory is determined by the MLflow experiment ID and run ID, so the model will be inside the corresponding run's artifact directory rather than directly at `mlruns/model`.
+
+## Question 7
+
+The learning rate that gave the best `val_accuracy` was 0.0001.
+
+Higher learning rate is not always better. A learning rate that is too high can make training unstable or prevent the model from converging well, while a learning rate that is too low can make learning very slow. Therefore, the best value for this experiment is the one associated with the highest observed `val_accuracy`.
+
+## Question 8
+
+The parallel-coordinates plot shows that the runs with (`batch-size`=64 and `lr`=0.001, `batch-size`=32 and `lr`=0.001, `batch-size`=32 and `lr`=0.0001) achieved the higher `val_accuracy`. The experiment does not show that simply increasing `lr` or `batch_size` always improves accuracy; the result depends on the combination of hyperparameters.
+
+## Question 9
+
+The best run according to `val_accuracy` was run a7358eb3206f4a63bac31618759140e8, with a `val_accuracy` of 0.7627737226277372.

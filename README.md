@@ -241,3 +241,77 @@ The parallel-coordinates plot shows that the runs with (`batch-size`=64 and `lr`
 ## Question 9
 
 The best run according to `val_accuracy` was run a7358eb3206f4a63bac31618759140e8, with a `val_accuracy` of 0.7627737226277372.
+
+---
+
+# mlops-lab-3
+
+## Question 1
+
+The model was registered under the name **`food11`** and was given **version 4**. Version 4 is currently assigned the **`champion`** alias and was produced by run `56e852327df34614a957136ef8b51913`.
+
+A **run's logged model artifact** is the trained model saved as an artifact belonging to a specific MLflow run. It is tied to that experiment run and its recorded parameters and metrics. A **registered model** is a separate Model Registry entity with a shared name (`food11`) that can contain multiple model versions, each associated with a run. This allows models to be managed and deployed independently of the individual training runs.
+
+## Question 2
+
+The old built-in MLflow stages such as `Staging` and `Production` have been replaced by model aliases such as `champion` and `challenger`.
+
+A model is versioned separately from the run that produced it because multiple runs can produce different versions of the same logical model. The Registry provides a stable model name and version history independently of individual experiment runs.
+
+An alias is more flexible than a fixed stage because an alias is a mutable pointer. For example, `champion` can point to version 1 today and be reassigned to version 2 later without changing either model version. This allows the serving application to continue using `models:/food11@champion` while the alias is moved to a newer version.
+
+## Question 3
+
+Using `models:/food11@champion` allows the serving application to obtain whichever model version is currently assigned the `champion` alias. This separates the serving code from a specific file location and allows the model to be managed through the MLflow Model Registry.
+
+If a newer model version is registered and should be served, the serving code does not need to change. The `champion` alias can simply be reassigned to the newer version in the Model Registry.
+
+## Question 4
+
+`pyproject.toml` and `uv.lock` are copied before the source code so that Docker can cache the dependency-installation layer. If only `serve.py` changes, the dependency files have not changed, so Docker can reuse the cached dependency layer and only rebuild the layers after the source code is copied.
+
+If all source files were copied before installing dependencies, a small source-code change could invalidate the dependency layer and cause the dependencies to be installed again, making rebuilds slower.
+
+## Question 5
+
+The measured size of the **multi-stage Docker image** (`food11-api:latest`) is **3,104,053,887 bytes**, while the **naive single-stage image** (`food11-api:naive`) is **3,139,344,207 bytes**.
+
+Therefore, the multi-stage image is **35,290,320 bytes smaller**, which is approximately **33.7 MiB** or about **1.12% smaller** than the naive image.
+
+From `docker history`, the largest layer in the multi-stage image is the copied `.venv` at approximately **5.81 GB**, while the naive image has a **5.86 GB** layer created by `uv sync`. This shows that the Python environment and its dependencies dominate the image size. The multi-stage build still produces a smaller final image because the builder-stage tooling and intermediate layers are not included in the runtime image.
+
+## Question 6
+
+If `.dockerignore` is missing, Docker sends many unnecessary files from the project directory to the Docker daemon as the build context. This increases the amount of data transferred and can make builds slower.
+
+It can also make the image build process unnecessarily large because files that are not needed by the application become available to the build.
+
+For this lab, folders such as `.venv/`, `data/`, `mlruns/`, `mlflow.db`, `.git/`, and `__pycache__/` should be excluded because the Docker image does not need them. None of these folders is required by the Dockerfile described in the lab; the important runtime inputs are the dependencies and `src/`.
+
+## Question 7
+
+`127.0.0.1` inside a container refers to the container itself, not the Windows host machine. Therefore, `127.0.0.1:5000` inside the container does not refer to the MLflow server running on the host.
+
+On Docker Desktop for Windows and Mac, `host.docker.internal` provides a hostname that allows a container to reach services running on the host. Therefore the container can use:
+
+```text
+http://host.docker.internal:5000
+```
+
+to reach the MLflow tracking server on the host.
+
+## Question 8
+
+Yes. After stopping the container and starting another container from the same image, the model should still load correctly as long as the MLflow server and registered model are available.
+
+This demonstrates that the model is not baked into the Docker image. The image contains the serving application and its dependencies, while the model is fetched at runtime from the MLflow Model Registry through the `food11@champion` alias.
+
+Therefore, rebuilding the image is not necessary merely to switch the served model version. The `champion` alias can be reassigned in MLflow.
+
+## Question 9
+
+The Docker image itself still needs to be distributed. Git versions the `Dockerfile`, but another machine cannot automatically obtain the exact built image from Git.
+
+For another machine, CI runner, or Kubernetes cluster to reliably pull the image, the image should be pushed to a container registry such as GitHub Container Registry or Docker Hub and referenced using a versioned tag and preferably an immutable image digest.
+
+The missing step is therefore publishing and versioning the Docker image in a container registry.

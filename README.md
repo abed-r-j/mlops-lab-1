@@ -315,3 +315,208 @@ The Docker image itself still needs to be distributed. Git versions the `Dockerf
 For another machine, CI runner, or Kubernetes cluster to reliably pull the image, the image should be pushed to a container registry such as GitHub Container Registry or Docker Hub and referenced using a versioned tag and preferably an immutable image digest.
 
 The missing step is therefore publishing and versioning the Docker image in a container registry.
+
+---
+
+# mlops-lab-4
+
+### Question 1
+
+---
+
+Without a mounted volume, `/mlflow-data` exists only inside the container's writable filesystem. The MLflow database and artifacts stored there disappear when the container is removed.
+
+In the test, the first disposable MLflow container contained `/mlflow-data/mlflow.db` at approximately 856 KB. After the container was stopped and removed, a new container from the same image created a new database instead of retaining the previous container's state.
+
+### Question 2
+---
+
+A named volume is managed by Docker and exists independently of an individual container's filesystem, so MLflow's database and artifacts survive container recreation.
+
+A bind mount would also work, especially for local development, but it depends on a specific host directory and therefore couples the container configuration to the host filesystem. A named volume is cleaner and more portable for this Compose setup.
+
+### Question 3
+---
+
+Docker Compose creates a private network for the services and provides internal DNS resolution using service names. Therefore, the `inference` container can resolve `mlflow` directly to the MLflow container's IP address.
+
+This was verified experimentally:
+
+```text
+mlflow resolves to: 172.19.0.2
+```
+
+So `MLFLOW_TRACKING_URI=http://mlflow:5000` works without `host.docker.internal` or a published host port.
+
+### Question 4
+
+---
+
+Using an environment variable keeps the frontend image reusable in different environments.
+
+Inside Compose, it is set to:
+
+```text
+http://inference:8000
+```
+
+If the frontend image were run by itself outside Compose, the value could instead point to another inference endpoint without modifying or rebuilding the image.
+
+The actual Compose environment variable was verified as:
+
+```text
+INFERENCE_URL = http://inference:8000
+```
+
+### Question 5
+
+---
+
+The inference service does not need a published host port because only other Compose services need to communicate with it.
+
+The frontend reaches it through the private Compose network using:
+
+```text
+http://inference:8000
+```
+
+The inference service therefore shows only:
+
+```text
+8000/tcp
+```
+
+in `docker compose ps`, while MLflow and the frontend publish ports to the host.
+
+The frontend-to-inference connection was verified with:
+
+```text
+status: 200
+response: {"status":"ok"}
+```
+
+### Question 6
+
+---
+
+`depends_on` controls container start order but does not wait for MLflow's internal server to become ready.
+
+Therefore, if `serve.py` tries to load the registered model before MLflow is accepting requests, the inference container can fail during startup because it cannot reach the MLflow tracking/model registry service.
+
+In this actual run, MLflow became ready in time, so no startup failure occurred. The inference container successfully contacted MLflow, downloaded the model artifacts, and started on port 8000.
+
+### Question 7
+
+---
+
+`docker compose ps` showed:
+
+```text
+mlflow      0.0.0.0:5000->5000/tcp
+frontend    0.0.0.0:8501->8501/tcp
+inference   8000/tcp
+```
+
+Therefore:
+
+* `mlflow` publishes port 5000.
+* `frontend` publishes port 8501.
+* `inference` does not publish a host port.
+
+This exactly matches the `docker-compose.yml` architecture.
+
+The complete end-to-end application was also tested successfully: the frontend produced:
+
+```text
+Prediction: Fried food (33.6%)
+```
+
+### Question 8
+
+---
+
+The handout uses the older `Staging` terminology, while this MLflow 3 setup uses the modern `champion` alias.
+
+Initially:
+
+```text
+food11@champion = version 4
+```
+
+A new registered version was created:
+
+```text
+Created version: 5
+Source: models:/m-5aa5e97cf0c5453280c5d87134d2659f
+champion: 5
+```
+
+The inference service was then restarted with:
+
+```text
+docker compose restart inference
+```
+
+It downloaded the model artifacts again and started successfully. The service subsequently returned:
+
+```text
+status: 200
+response: {"status":"ok"}
+```
+
+Therefore, the active model can be promoted in MLflow and picked up by restarting the inference service, without rebuilding the Docker image.
+
+### Question 9
+
+---
+
+The inference Docker image contains the application code and its runtime dependencies, but the model itself is fetched from MLflow when the container starts.
+
+Therefore, changing the model version or `champion` alias in MLflow does not require rebuilding the image. Restarting the container causes `serve.py` to load the current model referenced by MLflow.
+
+This demonstrates the separation between the application image and the externally managed model artifact.
+
+### Question 10
+
+---
+
+Yes. This was verified experimentally.
+
+After:
+
+```text
+docker compose down
+docker compose up -d
+```
+
+all three containers and the Compose network were recreated. However:
+
+```text
+champion: 5
+```
+
+was still present, proving that the MLflow database and registry persisted in the named volume.
+
+The inference service also remained healthy:
+
+```text
+status: 200
+response: {"status":"ok"}
+```
+
+The named volume is what preserves MLflow's database and artifacts across container removal.
+
+The `docker compose down -v` operation is different because `-v` removes the named volumes declared by the Compose project. That would delete the persisted MLflow database and artifacts, so the registered model and its alias assignment would no longer be available when the stack is started again.
+
+We did not execute `down -v` because it would intentionally destroy the working MLflow state used by the rest of the lab.
+
+### Question 11
+---
+
+Docker Compose is intended here for orchestrating the services on one machine. It does not provide the full multi-node orchestration, scheduling, replica management, load balancing, and high-availability capabilities required for a production deployment spanning machines.
+
+For three inference replicas, a container orchestrator such as Kubernetes or Docker Swarm would be needed, together with a load balancer/service that distributes requests across the replicas.
+
+For MLflow to survive machine failure, the MLflow database and artifact storage would need to be moved to durable external or highly available infrastructure rather than relying on a local Docker volume on a single machine. The orchestration layer would also need the ability to restart/reschedule services on another machine.
+
+The Lab 4 Compose file itself remains a single-machine setup.
